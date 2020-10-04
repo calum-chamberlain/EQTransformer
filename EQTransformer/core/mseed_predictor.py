@@ -9,46 +9,42 @@ last update: 06/28/2020
 
 """
 
-from __future__ import print_function
-from __future__ import division
-from tensorflow.compat.v1.keras import backend as K
-from keras.models import load_model
-from keras.optimizers import Adam
-import tensorflow as tf
-import matplotlib
-
-matplotlib.use("agg")
-import matplotlib.pyplot as plt
-import numpy as np
-import pandas as pd
 import math
 import csv
 import keras
 import time
-from os import listdir
 import os
 import shutil
-from tqdm import tqdm
-from datetime import datetime, timedelta
-import contextlib
 import sys
 import warnings
+import contextlib
+
+import numpy as np
+import pandas as pd
+import tensorflow as tf
+
+from tqdm import tqdm
+from datetime import datetime, timedelta
+from typing import Iterable
+
 from scipy import signal
-from matplotlib.lines import Line2D
-from obspy import read
-from os.path import join
+from obspy import read, Stream
+from obspy.signal.trigger import trigger_onset
+
+from tensorflow.compat.v1.keras import backend as K
+from keras.models import load_model
+from keras.optimizers import Adam
+from tensorflow.python.util import deprecation
+
 import json
 import pickle
 import faulthandler
 
-faulthandler.enable()
-import obspy
-from obspy.signal.trigger import trigger_onset
 from .EqT_utils import f1, SeqSelfAttention, FeedForward, LayerNormalization
 
-warnings.filterwarnings("ignore")
-from tensorflow.python.util import deprecation
 
+warnings.filterwarnings("ignore")
+faulthandler.enable()
 deprecation._PRINT_DEPRECATION_WARNINGS = False
 
 try:
@@ -61,22 +57,22 @@ except Exception:
 
 
 def mseed_predictor(
-    input_dir="downloads_mseeds",
-    input_model="sampleData&Model/EqT1D8pre_048.h5",
-    stations_json="station_list.json",
-    output_dir="detections",
-    detection_threshold=0.3,
-    P_threshold=0.1,
-    S_threshold=0.1,
-    number_of_plots=10,
-    plot_mode="time",
-    loss_weights=[0.03, 0.40, 0.58],
-    loss_types=["binary_crossentropy", "binary_crossentropy", "binary_crossentropy"],
-    normalization_mode="std",
-    batch_size=500,
-    overlap=0.3,
-    gpuid=None,
-    gpu_limit=None,
+    input_dir: str = "downloaded_mseeds",
+    input_model: str = "sampleData&Model/EqT1D8pre_048.h5",
+    stations_json: str = "station_list.json",
+    output_dir: str = "detections",
+    detection_threshold: float = 0.3,
+    P_threshold: float = 0.1,
+    S_threshold: float = 0.1,
+    number_of_plots: int = 10,
+    plot_mode: str = "time",
+    loss_weights: Iterable = (0.03, 0.40, 0.58),
+    loss_types: Iterable = ("binary_crossentropy", "binary_crossentropy", "binary_crossentropy"),
+    normalization_mode: str = "std",
+    batch_size: int = 500,
+    overlap: float = 0.3,
+    gpuid: int = None,
+    gpu_limit: float = None,
 ):
 
     """ 
@@ -98,10 +94,11 @@ def mseed_predictor(
         Output directory that will be generated.
             
     detection_threshold: float, default=0.3
-        A value in which the detection probabilities above it will be considered as an event.
+        A value in which the detection probabilities above it will be
+        considered as an event.
             
     P_threshold: float, default=0.1
-        A value which the P probabilities above it will be considered as P arrival.                
+        A value which the P probabilities above it will be considered as P arrival.
             
     S_threshold: float, default=0.1
         A value which the S probabilities above it will be considered as S arrival.
@@ -119,10 +116,12 @@ def mseed_predictor(
         Loss types for detection P picking and S picking respectively.
              
     normalization_mode: str, default=std
-        Mode of normalization for data preprocessing max maximum amplitude among three components std standard deviation.
+        Mode of normalization for data preprocessing max maximum amplitude
+        among three components std standard deviation.
              
     batch_size: int, default=500
-        Batch size. This wont affect the speed much but can affect the performance. A value beteen 200 to 1000 is recommanded.
+        Batch size. This wont affect the speed much but can affect the
+        performance. A value beteen 200 to 1000 is recommanded.
              
     overlap: float, default=0.3
         If set the detection and picking are performed in overlapping windows.
@@ -135,10 +134,15 @@ def mseed_predictor(
            
     Returns
     --------        
-    output_dir/STATION_OUTPUT/X_prediction_results.csv: A table containing all the detection, and picking results. Duplicated events are already removed.
-    output_dir/STATION_OUTPUT/X_report.txt: A summary of the parameters used for prediction and performance.
-    output_dir/STATION_OUTPUT/figures: A folder containing plots detected events and picked arrival times.
-    time_tracks.pkl: A file containing the time track of the continous data and its type. 
+    output_dir/STATION_OUTPUT/X_prediction_results.csv:
+        A table containing all the detection, and picking results. Duplicated
+        events are already removed.
+    output_dir/STATION_OUTPUT/X_report.txt:
+        A summary of the parameters used for prediction and performance.
+    output_dir/STATION_OUTPUT/figures:
+        A folder containing plots detected events and picked arrival times.
+    time_tracks.pkl:
+        A file containing the time track of the continous data and its type.
     
     Note
     --------        
@@ -168,10 +172,12 @@ def mseed_predictor(
 
     if args["gpuid"]:
         os.environ["CUDA_VISIBLE_DEVICES"] = "{}".format(args["gpuid"])
-        tf.compat.v1.Session(config=tf.compat.v1.ConfigProto(log_device_placement=True))
+        tf.compat.v1.Session(config=tf.compat.v1.ConfigProto(
+            log_device_placement=True))
         config = tf.compat.v1.ConfigProto()
         config.gpu_options.allow_growth = True
-        config.gpu_options.per_process_gpu_memory_fraction = float(args["gpu_limit"])
+        config.gpu_options.per_process_gpu_memory_fraction = float(
+            args["gpu_limit"])
         K.set_session(tf.compat.v1.Session(config=config))
 
     class DummyFile(object):
@@ -233,7 +239,7 @@ def mseed_predictor(
 
     station_list = [
         ev.split(".")[0]
-        for ev in listdir(args["input_dir"])
+        for ev in os.listdir(args["input_dir"])
         if ev.split("/")[-1] != ".DS_Store"
     ]
     station_list = sorted(set(station_list))
@@ -291,8 +297,8 @@ def mseed_predictor(
         start_Predicting = time.time()
 
         file_list = [
-            join(st, ev)
-            for ev in listdir(args["input_dir"] + "/" + st)
+            os.path.join(st, ev)
+            for ev in os.listdir(args["input_dir"] + "/" + st)
             if ev.split("/")[-1].split(".")[-1].lower() == "mseed"
         ]
         mon = [ev.split("__")[1] + "__" + ev.split("__")[2] for ev in file_list]
@@ -433,7 +439,7 @@ def _mseed2nparry(args, matching, time_slots, comp_types, st_name):
     json_file = open(args["stations_json"])
     stations_ = json.load(json_file)
 
-    st = obspy.core.Stream()
+    st = Stream()
     tsw = False
     for m in matching:
         temp_st = read(os.path.join(str(args["input_dir"]), m), debug_headers=True)
@@ -794,8 +800,14 @@ def _get_snr(data, pat, window=200):
 
 
 def _detect_peaks(
-    x, mph=None, mpd=1, threshold=0, edge="rising", kpsh=False, valley=False
-):
+    x: np.ndarray,
+    mph: float = None,
+    mpd: int = 1,
+    threshold: int = 0,
+    edge: str = "rising",
+    kpsh: bool = False,
+    valley: bool = False
+) -> np.ndarray:
 
     """
     
@@ -805,22 +817,20 @@ def _detect_peaks(
     ----------
     x : 1D array_like
         data.
-        
     mph : {None, number}, default=None
         detect peaks that are greater than minimum peak height.
-        
     mpd : int, default=1
-        detect peaks that are at least separated by minimum peak distance (in number of data).
-        
+        detect peaks that are at least separated by minimum peak distance
+        (in number of samples).
     threshold : int, default=0
-        detect peaks (valleys) that are greater (smaller) than `threshold in relation to their immediate neighbors.
-        
+        detect peaks (valleys) that are greater (smaller) than threshold in
+        relation to their immediate neighbors.
     edge : str, default=rising
-        for a flat peak, keep only the rising edge ('rising'), only the falling edge ('falling'), both edges ('both'), or don't detect a flat peak (None).
-        
+        for a flat peak, keep only the rising edge ('rising'), only the
+        falling edge ('falling'), both edges ('both'), or don't detect a flat
+        peak (None).
     kpsh : bool, default=False
         keep peaks with same height even if they are closer than `mpd`.
-        
     valley : bool, default=False
         if True (1), detect valleys (local minima) instead of peaks.
 
@@ -832,8 +842,6 @@ def _detect_peaks(
     Modified from 
     ----------
     .. [1] http://nbviewer.ipython.org/github/demotu/BMC/blob/master/notebooks/DetectPeaks.ipynb
-    
-
     """
 
     x = np.atleast_1d(x).astype("float64")
@@ -894,7 +902,7 @@ def _detect_peaks(
     return ind
 
 
-def _picker(args, yh1, yh2, yh3):
+def _picker(args: dict, yh1: np.ndarray, yh2: np.ndarray, yh3: np.ndarray):
 
     """ 
     
@@ -921,11 +929,13 @@ def _picker(args, yh1, yh2, yh3):
         Contains the information for the detected and picked event.            
         
     matches : dic
-        {detection statr-time:[ detection end-time, detection probability, detectin uncertainty, P arrival, P probabiliy, P uncertainty, S arrival,  S probability, S uncertainty]}
+        {detection start-time: [detection end-time, detection probability,
+                                detection uncertainty, P arrival, P probability,
+                                P uncertainty, S arrival,  S probability,
+                                S uncertainty]}
         
     yh3 : 1D array             
-        normalized S_probability                              
-                
+        normalized S_probability
     """
 
     detection = trigger_onset(
@@ -970,27 +980,27 @@ def _picker(args, yh1, yh2, yh3):
             EVENTS.update({detection[ev][0]: [D_prob, D_uncertainty, detection[ev][1]]})
 
     # matching the detection and picks
-    def pair_PS(l1, l2, dist):
-        l1.sort()
-        l2.sort()
-        b = 0
-        e = 0
-        ans = []
-
-        for a in l1:
-            while l2[b] and b < len(l2) and a - l2[b] > dist:
-                b += 1
-            while l2[e] and e < len(l2) and l2[e] - a <= dist:
-                e += 1
-            ans.extend([[a, x] for x in l2[b:e]])
-
-        best_pair = None
-        for pr in ans:
-            ds = pr[1] - pr[0]
-            if abs(ds) < dist:
-                best_pair = pr
-                dist = ds
-        return best_pair
+    # def pair_PS(l1, l2, dist):
+    #     l1.sort()
+    #     l2.sort()
+    #     b = 0
+    #     e = 0
+    #     ans = []
+    #
+    #     for a in l1:
+    #         while l2[b] and b < len(l2) and a - l2[b] > dist:
+    #             b += 1
+    #         while l2[e] and e < len(l2) and l2[e] - a <= dist:
+    #             e += 1
+    #         ans.extend([[a, x] for x in l2[b:e]])
+    #
+    #     best_pair = None
+    #     for pr in ans:
+    #         ds = pr[1] - pr[0]
+    #         if abs(ds) < dist:
+    #             best_pair = pr
+    #             dist = ds
+    #     return best_pair
 
     for ev in EVENTS:
         bg = ev
@@ -1053,27 +1063,36 @@ def _picker(args, yh1, yh2, yh3):
     return matches, pick_errors, yh3
 
 
-def _resampling(st):
-    "perform resampling on Obspy stream objects"
+def _resampling(st: Stream, required_rate: float = 100.0) -> Stream:
+    """
+    Helper function for resampling streams.
 
-    need_resampling = [tr for tr in st if tr.stats.sampling_rate != 100.0]
-    if len(need_resampling) > 0:
-        # print('resampling ...', flush=True)
-        for indx, tr in enumerate(need_resampling):
-            if tr.stats.delta < 0.01:
-                tr.filter("lowpass", freq=45, zerophase=True)
-            tr.resample(100)
-            tr.stats.sampling_rate = 100
-            tr.stats.delta = 0.01
-            tr.data.dtype = "int32"
-            st.remove(tr)
-            st.append(tr)
-    return st
+    Parameters
+    ----------
+    st
+        Stream to look for resampling
+
+    Returns
+    -------
+    Resampled stream.
+    """
+    need_resampling = [
+        tr for tr in st if tr.stats.sampling_rate != required_rate]
+    if len(need_resampling) == 0:
+        return st
+    resampled_st = Stream(
+        [tr for tr in st if tr.stats.sampling_rate == required_rate])
+    for tr in need_resampling:
+        if tr.stats.delta < 0.01:
+            tr.filter("lowpass", freq=45, zerophase=True)
+        tr.resample(100)
+        tr.data = tr.data.astype(np.int32)  # Resampling changes to float.
+        resampled_st += tr
+    return resampled_st
 
 
-def _normalize(data, mode="max"):
-    """ 
-    
+def _normalize(data: np.ndarray, mode: str = "max"):
+    """
     Normalize 3D arrays.
     
     Parameters
@@ -1090,19 +1109,17 @@ def _normalize(data, mode="max"):
         normalized data. 
             
     """
+    assert mode in ("max", "std"), f"mode: {mode} must be either max or std"
 
     data -= np.mean(data, axis=0, keepdims=True)
-    if mode == "max":
-        max_data = np.max(data, axis=0, keepdims=True)
-        assert max_data.shape[-1] == data.shape[-1]
-        max_data[max_data == 0] = 1
-        data /= max_data
 
+    if mode == "max":
+        normalizer = np.max(data, axis=0, keepdims=True)
     elif mode == "std":
-        std_data = np.std(data, axis=0, keepdims=True)
-        assert std_data.shape[-1] == data.shape[-1]
-        std_data[std_data == 0] = 1
-        data /= std_data
+        normalizer = np.std(data, axis=0, keepdims=True)
+    assert normalizer.shape[-1] == data.shape[-1]
+    normalizer[normalizer == 0] = 1
+    data /= normalizer
     return data
 
 
@@ -1140,6 +1157,8 @@ def _plotter_prediction(data, args, save_figs, yh1, yh2, yh3, evi, matches):
                   
         
     """
+    import matplotlib.pyplot as plt
+    from matplotlib.lines import Line2D
 
     font0 = {
         "family": "serif",
