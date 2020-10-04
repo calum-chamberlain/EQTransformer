@@ -436,8 +436,8 @@ def mseed_predictor(
 def _mseed2nparry(args, matching, time_slots, comp_types, st_name):
     " read miniseed files and from a list of string names and returns 3 dictionaries of numpy arrays, meta data, and time slice info"
 
-    json_file = open(args["stations_json"])
-    stations_ = json.load(json_file)
+    with open(args["stations_json"]) as json_file:
+        stations_ = json.load(json_file)
 
     st = Stream()
     tsw = False
